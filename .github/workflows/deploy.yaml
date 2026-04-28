@@ -1,4 +1,4 @@
-name: Deploy to Server
+name: Deploy Monorepo App
 
 on:
   push:
@@ -7,15 +7,61 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Deploy to server
-        uses: appleboy/ssh-action@v0.1.5
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd /var/www/todo-app
-            git pull origin main
-            npm install
-            pm2 restart todo-app
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Detect changes
+      id: changes
+      run: |
+        echo "BACKEND_CHANGED=false" >> $GITHUB_ENV
+        echo "FRONTEND_CHANGED=false" >> $GITHUB_ENV
+
+        git diff --name-only ${{ github.event.before }} ${{ github.sha }} > changes.txt
+
+        if grep -q "^backend/" changes.txt; then
+          echo "BACKEND_CHANGED=true" >> $GITHUB_ENV
+        fi
+
+        if grep -q "^frontend/" changes.txt; then
+          echo "FRONTEND_CHANGED=true" >> $GITHUB_ENV
+        fi
+
+    # Backend Deployment
+    - name: Deploy Backend
+      if: env.BACKEND_CHANGED == 'true'
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        script: |
+          cd /home/dev/shumet/webstack-portfolio-project-todo-app
+          git pull origin main
+
+          cd backend
+          npm install
+
+          pm2 restart shumet-backend || pm2 start src/index.ts \
+            --name shumet-backend \
+            --interpreter npx \
+            --interpreter-args ts-node
+
+    #  Frontend Deployment
+    - name: Deploy Frontend
+      if: env.FRONTEND_CHANGED == 'true'
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        script: |
+          cd /home/dev/shumet/webstack-portfolio-project-todo-app
+          git pull origin main
+
+          cd frontend
+          npm install
+          npm run build
+
+          pm2 restart shumet-frontend || pm2 start npm --name shumet-frontend -- start
